@@ -103,11 +103,12 @@ class _MyHomePageState extends State<MyHomePage> {
                       stream: element.state,
                       initialData: BluetoothDeviceState.disconnected,
                       builder: (context, snapshot) {
+                        print("${element.name} : ${snapshot.data}");
                         switch (snapshot.data!) {
                           case BluetoothDeviceState.disconnected:
                             return ElevatedButton(
                               onPressed: element.connect,
-                              child: const Text("disconnected"),
+                              child: const Text("connect"),
                             );
                           case BluetoothDeviceState.connecting:
                             return const CircularProgressIndicator(
@@ -115,8 +116,11 @@ class _MyHomePageState extends State<MyHomePage> {
                             );
                           case BluetoothDeviceState.connected:
                             return ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                              ),
                               onPressed: element.disconnect,
-                              child: const Text("connected"),
+                              child: const Text("disconnect"),
                             );
                           case BluetoothDeviceState.disconnecting:
                             return const CircularProgressIndicator(
