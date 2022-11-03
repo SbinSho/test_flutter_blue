@@ -5,17 +5,17 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 void main() async {
-  runApp(const MyApp());
+  runApp(const FlutterBlueDemo());
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+class FlutterBlueDemo extends StatefulWidget {
+  const FlutterBlueDemo({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  State<FlutterBlueDemo> createState() => _FlutterBlueDemoState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _FlutterBlueDemoState extends State<FlutterBlueDemo> {
   @override
   void initState() {
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
@@ -50,21 +50,21 @@ class _MyAppState extends State<MyApp> {
           bodyText2: TextStyle(),
         ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const DemoPage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+class DemoPage extends StatefulWidget {
+  const DemoPage({super.key, required this.title});
 
   final String title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<DemoPage> createState() => _DemoPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _DemoPageState extends State<DemoPage> {
   final _fBL = FlutterBluePlus.instance;
 
   Set<BluetoothDevice> devices = {};
@@ -103,11 +103,12 @@ class _MyHomePageState extends State<MyHomePage> {
                       stream: element.state,
                       initialData: BluetoothDeviceState.disconnected,
                       builder: (context, snapshot) {
+                        print("${element.name} : ${snapshot.data}");
                         switch (snapshot.data!) {
                           case BluetoothDeviceState.disconnected:
                             return ElevatedButton(
                               onPressed: element.connect,
-                              child: const Text("disconnected"),
+                              child: const Text("connect"),
                             );
                           case BluetoothDeviceState.connecting:
                             return const CircularProgressIndicator(
@@ -115,8 +116,11 @@ class _MyHomePageState extends State<MyHomePage> {
                             );
                           case BluetoothDeviceState.connected:
                             return ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                              ),
                               onPressed: element.disconnect,
-                              child: const Text("connected"),
+                              child: const Text("disconnect"),
                             );
                           case BluetoothDeviceState.disconnecting:
                             return const CircularProgressIndicator(
