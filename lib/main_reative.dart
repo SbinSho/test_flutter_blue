@@ -32,7 +32,7 @@ class _DemoPageState extends State<DemoPage> {
   final flutterReactiveBle = FlutterReactiveBle();
 
   ValueNotifier<DiscoveredDevice?> lastDevice = ValueNotifier(null);
-  Set<DiscoveredDevice> devices = {};
+  Map<String, DiscoveredDevice> devices = {};
   StreamSubscription? _subscription;
 
   late bool _isScanning;
@@ -40,15 +40,9 @@ class _DemoPageState extends State<DemoPage> {
 
   @override
   void initState() {
-    _isScanning = true;
-    scaning.add(_isScanning);
+    _isScanning = false;
     startScan();
     Future.delayed(const Duration(seconds: 10), stopScan);
-
-    flutterReactiveBle.characteristicValueStream.listen((event) {
-      print("event : $event");
-    });
-
     super.initState();
   }
 
@@ -64,8 +58,23 @@ class _DemoPageState extends State<DemoPage> {
       Uuid.parse("0000fee7-0000-1000-8000-00805f9b34fb"),
     ], scanMode: ScanMode.lowLatency).listen((device) {
       if (device.name != "") {
-        if (!devices.contains(device)) {
-          Timer.periodic(const Duration(seconds: 3), (timer) {
+        if (!devices.containsKey(device.id)) {
+          devices[device.id] = device;
+          lastDevice.value = (device);
+        }
+      }
+    });
+  }
+
+  void stopScan() {
+    _subscription?.cancel();
+    _subscription = null;
+    _isScanning = !_isScanning;
+    scaning.add(_isScanning);
+  }
+
+  void setTime() {
+    /* Timer.periodic(const Duration(seconds: 3), (timer) {
             flutterReactiveBle
                 .connectToDevice(id: device.id)
                 .listen((event) async {
@@ -90,20 +99,7 @@ class _DemoPageState extends State<DemoPage> {
                 ]);
               }
             });
-          });
-
-          devices.add(device);
-          lastDevice.value = (device);
-        }
-      }
-    });
-  }
-
-  void stopScan() {
-    _subscription?.cancel();
-    _subscription = null;
-    _isScanning = !_isScanning;
-    scaning.add(_isScanning);
+          },); */
   }
 
   @override
@@ -118,52 +114,35 @@ class _DemoPageState extends State<DemoPage> {
           builder: (context, value, child) {
             return Column(
               children: [
-                for (var element in devices)
+                for (var element in devices.entries)
                   ListTile(
-                    title: Text(element.name),
-                    subtitle: Text(element.id),
+                    title: Text(element.value.name),
+                    subtitle: Text(element.value.id),
                     trailing: ElevatedButton(
                       onPressed: () async {
                         flutterReactiveBle
-                            .connectToDevice(
-                          connectionTimeout: const Duration(seconds: 3),
-                          id: element.id,
-                          /* prescanDuration: const Duration(seconds: 2),
-                          withServices: [
-                            Uuid.parse("00001800-0000-1000-8000-00805f9b34fb"),
-                            Uuid.parse("00002222-0000-1000-8000-00805f9b34fb"),
-                            Uuid.parse("0000fee7-0000-1000-8000-00805f9b34fb"),
-                          ], */
-                        )
-                            .listen((event) async {
-                          print(event.connectionState);
-                          if (event.connectionState ==
+                            .connectToDevice(id: element.value.id)
+                            .listen((sate) {
+                          if (sate.connectionState ==
                               DeviceConnectionState.connected) {
-                            print("serviceUuid======");
-                            for (var element in element.serviceUuids) {
-                              print(element);
-                            }
-                            print("====================");
-
-                            final tx = QualifiedCharacteristic(
+                            final characteristic = QualifiedCharacteristic(
                               characteristicId: Uuid.parse(
-                                  "000033f1-0000-1000-8000-00805f9b34fb"),
+                                  "000033f2-0000-1000-8000-00805f9b34fb"),
                               serviceId: Uuid.parse(
                                   "000055ff-0000-1000-8000-00805f9b34fb"),
-                              deviceId: element.id,
+                              deviceId: element.value.id,
                             );
 
-                            var time = DateTime.now();
-                            await flutterReactiveBle
-                                .writeCharacteristicWithResponse(tx, value: [
-                              0xA3,
-                              ..._int16To8List(time.year),
-                              time.month,
-                              time.day,
-                              time.hour,
-                              time.minute,
-                              time.second,
-                            ]);
+                            flutterReactiveBle
+                                .subscribeToCharacteristic(characteristic)
+                                .listen((event) {
+                              print("deviceName : ${element.value.name}");
+                              for (var i in event) {
+                                print(i);
+                              }
+                              /*  print(
+                                  "event : ${String.fromCharCodes(event).characters}"); */
+                            });
                           }
                         });
                       },
