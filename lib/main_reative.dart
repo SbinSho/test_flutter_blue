@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
-import 'package:provider/provider.dart';
+
+import 'models/B7Pro.dart';
 
 void main() {
   runApp(const ReactiveDemo());
@@ -29,77 +28,17 @@ class DemoPage extends StatefulWidget {
 }
 
 class _DemoPageState extends State<DemoPage> {
-  final flutterReactiveBle = FlutterReactiveBle();
-
-  ValueNotifier<DiscoveredDevice?> lastDevice = ValueNotifier(null);
-  Map<String, DiscoveredDevice> devices = {};
-  StreamSubscription? _subscription;
-
-  late bool _isScanning;
-  final scaning = StreamController<bool>.broadcast();
+  final B7ProModel scanner = B7ProModel.instance;
+  final connectWidgets = <Widget>[];
 
   @override
   void initState() {
-    _isScanning = false;
-    startScan();
-    Future.delayed(const Duration(seconds: 10), stopScan);
-    super.initState();
-  }
-
-  void startScan() {
-    devices.clear();
-    lastDevice.value = null;
-    _isScanning = !_isScanning;
-    scaning.add(_isScanning);
-
-    _subscription = flutterReactiveBle.scanForDevices(withServices: [
-      Uuid.parse("00001800-0000-1000-8000-00805f9b34fb"),
-      Uuid.parse("00002222-0000-1000-8000-00805f9b34fb"),
-      Uuid.parse("0000fee7-0000-1000-8000-00805f9b34fb"),
-    ], scanMode: ScanMode.lowLatency).listen((device) {
-      if (device.name != "") {
-        if (!devices.containsKey(device.id)) {
-          devices[device.id] = device;
-          lastDevice.value = (device);
-        }
-      }
+    scanner.flutterReactiveBle.connectedDeviceStream.listen((event) {
+      print("event : ${event.deviceId}");
+      print("event : ${event.connectionState}");
     });
-  }
 
-  void stopScan() {
-    _subscription?.cancel();
-    _subscription = null;
-    _isScanning = !_isScanning;
-    scaning.add(_isScanning);
-  }
-
-  void setTime() {
-    /* Timer.periodic(const Duration(seconds: 3), (timer) {
-            flutterReactiveBle
-                .connectToDevice(id: device.id)
-                .listen((event) async {
-              if (event.connectionState == DeviceConnectionState.connected) {
-                final tx = QualifiedCharacteristic(
-                  characteristicId:
-                      Uuid.parse("000033f1-0000-1000-8000-00805f9b34fb"),
-                  serviceId: Uuid.parse("000055ff-0000-1000-8000-00805f9b34fb"),
-                  deviceId: device.id,
-                );
-
-                var time = DateTime.now();
-                await flutterReactiveBle
-                    .writeCharacteristicWithResponse(tx, value: [
-                  0xA3,
-                  ..._int16To8List(time.year),
-                  time.month,
-                  time.day,
-                  time.hour,
-                  time.minute,
-                  time.second,
-                ]);
-              }
-            });
-          },); */
+    super.initState();
   }
 
   @override
@@ -109,74 +48,167 @@ class _DemoPageState extends State<DemoPage> {
         title: const Text("DEMO"),
       ),
       body: SingleChildScrollView(
-        child: ValueListenableBuilder(
-          valueListenable: lastDevice,
-          builder: (context, value, child) {
-            return Column(
-              children: [
-                for (var element in devices.entries)
-                  ListTile(
-                    title: Text(element.value.name),
-                    subtitle: Text(element.value.id),
-                    trailing: ElevatedButton(
-                      onPressed: () async {
-                        flutterReactiveBle
-                            .connectToDevice(id: element.value.id)
-                            .listen((sate) {
-                          if (sate.connectionState ==
-                              DeviceConnectionState.connected) {
-                            final characteristic = QualifiedCharacteristic(
-                              characteristicId: Uuid.parse(
-                                  "000033f2-0000-1000-8000-00805f9b34fb"),
-                              serviceId: Uuid.parse(
-                                  "000055ff-0000-1000-8000-00805f9b34fb"),
-                              deviceId: element.value.id,
-                            );
+        child: Column(
+          children: [
+            /* StreamBuilder(
+              stream: scanner.flutterReactiveBle.connectedDeviceStream,
+              builder: (context, snapshot) {
+                connectWidgets.clear();
 
-                            flutterReactiveBle
-                                .subscribeToCharacteristic(characteristic)
-                                .listen((event) {
-                              print("deviceName : ${element.value.name}");
-                              for (var i in event) {
-                                print(i);
-                              }
-                              /*  print(
-                                  "event : ${String.fromCharCodes(event).characters}"); */
-                            });
-                          }
-                        });
+                scanner.
+
+                if (snapshot.data != null) {
+                  final processModel =
+                      B7ProModelProcess(null, snapshot.data!.deviceId);
+
+                  connectWidgets.add(
+                    InkWell(
+                      onTap: () async {
+                        await _showDialog(processModel);
                       },
-                      child: const Text("read"),
+                      child: ListTile(
+                        title: Text(processModel.deviceId!),
+                        subtitle: Text(processModel.deviceId!),
+                        trailing: Text("rssi : ${processModel.deviceId}"),
+                      ),
                     ),
-                  )
-              ],
-            );
-          },
+                  );
+                }
+
+                return Column(
+                  children: connectWidgets,
+                );
+              },
+            ),
+            const Divider(thickness: 3), */
+            StreamBuilder<Map<String, DiscoveredDevice>>(
+              stream: scanner.deviceState,
+              initialData: const {},
+              builder: (context, snapshot) {
+                var widgets = <Widget>[];
+
+                for (var element in snapshot.data!.entries) {
+                  widgets.add(
+                    InkWell(
+                      onTap: () {
+                        _showDialog(element.value);
+                      },
+                      child: ListTile(
+                        title: Text(element.value.name),
+                        subtitle: Text(element.value.id),
+                        trailing: Text("rssi : ${element.value.rssi}"),
+                      ),
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: widgets,
+                );
+              },
+            ),
+          ],
         ),
       ),
       floatingActionButton: _buildActionBtn(),
     );
   }
 
-  Uint8List _int16To8List(int input) {
-    return Uint8List.fromList([(input >> 8) & 0xFF, input & 0xff]);
-  }
-
-  Widget _buildActionBtn() => StreamBuilder<bool>(
-        stream: scaning.stream,
-        initialData: true,
+  Widget _buildActionBtn() => StreamBuilder(
+        stream: scanner.scanningState,
+        initialData: false,
         builder: (context, snapshot) {
           if (snapshot.data!) {
             return FloatingActionButton(
-              onPressed: stopScan,
+              onPressed: scanner.stopScan,
               child: const CircularProgressIndicator(color: Colors.red),
             );
           } else {
             return FloatingActionButton(
-              onPressed: startScan,
+              onPressed: scanner.scanStart,
               child: const Icon(Icons.search),
             );
           }
         },
       );
+  Future<void> _showDialog(DiscoveredDevice device) {
+    final model = B7ProModelProcess(device, null);
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // user must tap button!
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('데이터 모니터링'),
+          content: SingleChildScrollView(
+            child: StreamBuilder<ConnectionStateUpdate>(
+              stream: model.connectState,
+              builder: (context, snapshot) {
+                if (snapshot.data != null &&
+                    snapshot.data!.connectionState ==
+                        DeviceConnectionState.connected) {
+                  return ListBody(
+                    children: <Widget>[
+                      StreamBuilder<List<int>>(
+                        stream: model.getHeartRate(),
+                        initialData: const [],
+                        builder: (context, snapshot) {
+                          if (snapshot.data != null &&
+                              snapshot.data!.isNotEmpty) {
+                            print("data : ${snapshot.data!}");
+
+                            debugPrint("${snapshot.data!.last}");
+                            return Text('심박수 => ${snapshot.data!.last}');
+                          }
+                          return const Text('심박수 => 0');
+                        },
+                      ),
+                      /* StreamBuilder<List<int>>(
+                          stream: model.getBodyTemp(),
+                          builder: (context, snapshot) {
+                            if (snapshot.data != null &&
+                                snapshot.data!.isNotEmpty) {
+                              debugPrint("${snapshot.data!.first}");
+                              return Text(
+                                  '체온 => ${snapshot.data!.first}, ${snapshot.data!.length > 1 ? snapshot.data![1] : 0}');
+                            }
+                            return const Text('체온 => 0');
+                          }), */
+                      /* StreamBuilder<List<int>>(
+                          stream: processModel.getStepCount(),
+                          builder: (context, snapshot) {
+                            if (snapshot.data != null &&
+                                snapshot.data!.isNotEmpty) {
+                              debugPrint("${snapshot.data!.last}");
+                              return Text('걸음수 => ${snapshot.data!.last}');
+                            }
+                            return const Text('걸음수 => 0');
+                          }), */
+                    ],
+                  );
+                } else {
+                  return Column(
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 8),
+                      Text(
+                          "${snapshot.data?.connectionState.toString().split(".").last}"),
+                    ],
+                  );
+                }
+              },
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('종료'),
+              onPressed: () {
+                model.deviceDisConnect();
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
