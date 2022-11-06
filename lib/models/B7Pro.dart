@@ -66,6 +66,9 @@ class B7ProModelProcess extends B7ProModel {
   B7ProModelProcess(this.device, this.deviceId);
 
   final _deviceConnectState = StreamController<ConnectionStateUpdate>();
+  final _dataStream = StreamController<List<List<int>>>.broadcast();
+
+  Stream<List<List<int>>> get data => _dataStream.stream;
 
   Stream<ConnectionStateUpdate> get connectState {
     _connectSubscription = flutterReactiveBle
@@ -93,78 +96,62 @@ class B7ProModelProcess extends B7ProModel {
     _connectSubscription = null;
   }
 
-  Stream<List<int>> getBodyTemp() {
-    final characteristic = QualifiedCharacteristic(
-      characteristicId: B7ProCommServiceCharacteristicUuid.command,
-      serviceId: B7ProServiceUuid.comm,
-      deviceId: device!.id,
-    );
-
-    final data = QualifiedCharacteristic(
-      characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
-      serviceId: B7ProServiceUuid.comm,
-      deviceId: device!.id,
-    );
-    tempTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      flutterReactiveBle.writeCharacteristicWithResponse(
-        characteristic,
-        value: [0x24, 0x01],
-      );
-    });
-
-    return flutterReactiveBle.subscribeToCharacteristic(data);
-  }
-
-  Timer? tempTimer;
-
-  Stream<List<int>> getHeartRate() {
-    final characteristic = QualifiedCharacteristic(
-      characteristicId: B7ProCommServiceCharacteristicUuid.command,
-      serviceId: B7ProServiceUuid.comm,
-      deviceId: device!.id,
-    );
-
-    final data = QualifiedCharacteristic(
-      characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
-      serviceId: B7ProServiceUuid.comm,
-      deviceId: device!.id,
-    );
-    /* tempTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      flutterReactiveBle.writeCharacteristicWithResponse(
-        characteristic,
-        value: [0xE5],
-      );
-    }); */
-    flutterReactiveBle.writeCharacteristicWithResponse(
-      characteristic,
-      value: [0xE5, 0xE511],
-    );
-    return flutterReactiveBle.subscribeToCharacteristic(data);
-  }
+  Timer? timer;
 
   void cancleTimer() {
-    tempTimer?.cancel();
+    timer?.cancel();
   }
 
-  Stream<List<int>> getStepCount() {
-    final characteristic = QualifiedCharacteristic(
-      characteristicId: B7ProCommServiceCharacteristicUuid.command,
-      serviceId: B7ProServiceUuid.comm,
-      deviceId: device!.id,
-    );
+  QualifiedCharacteristic getQualifiedCharacteristic() =>
+      QualifiedCharacteristic(
+        characteristicId: B7ProCommServiceCharacteristicUuid.command,
+        serviceId: B7ProServiceUuid.comm,
+        deviceId: device!.id,
+      );
 
-    final data = QualifiedCharacteristic(
+  final bodyTemp = 0x24;
+  final heartRate = 0xE5;
+  final stepCount = 0XB1;
+  final cmdStart = 0x11;
+  final cmdStop = 0x00;
+
+  void getData() async {
+    final characteristic = getQualifiedCharacteristic();
+
+    final dataChannel = QualifiedCharacteristic(
       characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
       serviceId: B7ProServiceUuid.comm,
       deviceId: device!.id,
     );
-    tempTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      flutterReactiveBle.writeCharacteristicWithResponse(
-        characteristic,
-        value: [0xB1],
-      );
-    });
 
-    return flutterReactiveBle.subscribeToCharacteristic(data);
+    await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
+        value: [bodyTemp, cmdStart]);
+
+    await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
+        value: [heartRate, cmdStart]);
+
+    /* await flutterReactiveBle
+        .writeCharacteristicWithResponse(qAstepCount, value: [stepCount]); */
+
+    List<List<int>> results = List<List<int>>.filled(3, [0]);
+    flutterReactiveBle.subscribeToCharacteristic(dataChannel).listen(
+      (event) {
+        print("event : $event");
+        if (event.length == 4) {
+          results[0] = event;
+        } else if (event.length == 13) {
+          results[1] = event;
+        } else if (event.length == 18) {
+          results[2] = event;
+        }
+
+        timer = Timer(
+          const Duration(seconds: 5),
+          () {
+            _dataStream.add(results);
+          },
+        );
+      },
+    );
   }
 }

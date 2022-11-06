@@ -146,7 +146,25 @@ class _DemoPageState extends State<DemoPage> {
                 if (snapshot.data != null &&
                     snapshot.data!.connectionState ==
                         DeviceConnectionState.connected) {
-                  return ListBody(
+                  model.getData();
+
+                  return StreamBuilder<List<List<int>>>(
+                    stream: model.data,
+                    initialData: [],
+                    builder: (context, snapshot) {
+                      if (snapshot.data != null && snapshot.data!.isNotEmpty) {
+                        if (snapshot.data!.length > 2) {
+                          debugPrint("0 : ${snapshot.data![0]}");
+                          debugPrint("1 : ${snapshot.data![1]}");
+                          debugPrint("2 : ${snapshot.data![2]}");
+                        }
+                      }
+
+                      return Container();
+                    },
+                  );
+
+                  /* return ListBody(
                     children: <Widget>[
                       StreamBuilder<List<int>>(
                         stream: model.getHeartRate(),
@@ -184,7 +202,7 @@ class _DemoPageState extends State<DemoPage> {
                             return const Text('걸음수 => 0');
                           }), */
                     ],
-                  );
+                  ); */
                 } else {
                   return Column(
                     children: [
