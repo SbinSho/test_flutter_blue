@@ -33,16 +33,6 @@ class _DemoPageState extends State<DemoPage> {
   final connectWidgets = <Widget>[];
 
   @override
-  void initState() {
-    scanner.flutterReactiveBle.connectedDeviceStream.listen((event) {
-      print("event : ${event.deviceId}");
-      print("event : ${event.connectionState}");
-    });
-
-    super.initState();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -51,37 +41,6 @@ class _DemoPageState extends State<DemoPage> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            /* StreamBuilder(
-              stream: scanner.flutterReactiveBle.connectedDeviceStream,
-              builder: (context, snapshot) {
-                connectWidgets.clear();
-
-                scanner.
-
-                if (snapshot.data != null) {
-                  final processModel =
-                      B7ProModelProcess(null, snapshot.data!.deviceId);
-
-                  connectWidgets.add(
-                    InkWell(
-                      onTap: () async {
-                        await _showDialog(processModel);
-                      },
-                      child: ListTile(
-                        title: Text(processModel.deviceId!),
-                        subtitle: Text(processModel.deviceId!),
-                        trailing: Text("rssi : ${processModel.deviceId}"),
-                      ),
-                    ),
-                  );
-                }
-
-                return Column(
-                  children: connectWidgets,
-                );
-              },
-            ),
-            const Divider(thickness: 3), */
             StreamBuilder<Map<String, DiscoveredDevice>>(
               stream: scanner.deviceState,
               initialData: const {},
@@ -133,41 +92,37 @@ class _DemoPageState extends State<DemoPage> {
         },
       );
   Future<void> _showDialog(DiscoveredDevice device) {
-    final model = B7ProTaskModel(device, null);
+    final taskModel = B7ProTaskModel(device);
     return showDialog<void>(
       context: context,
       barrierDismissible: false, // user must tap button!
       builder: (BuildContext context) {
+        print("test");
         return AlertDialog(
-          title: const Text('데이터 모니터링'),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              const Text('데이터 모니터링'),
+              Text(taskModel.device!.name),
+            ],
+          ),
           content: SingleChildScrollView(
             child: StreamBuilder<ConnectionStateUpdate>(
-              stream: model.connectState,
+              stream: taskModel.connectState,
               builder: (context, snapshot) {
+                print("state : ${snapshot.data?.connectionState}");
                 if (snapshot.data != null &&
                     snapshot.data!.connectionState ==
                         DeviceConnectionState.connected) {
-                  model.getData();
-
                   return StreamBuilder<List<List<int>>>(
-                    stream: model.data,
+                    stream: taskModel.data,
                     initialData: List<List<int>>.filled(3, [0]),
                     builder: (context, snapshot) {
-                      var bytePacket = Uint8List.fromList(snapshot.data![1]);
-                      if (snapshot.data![1][0] != 0) {
-                        return Column(
-                          children: [
-                            Text('심박수 => ${snapshot.data![0].last}'),
-                            Text(
-                                '체온 => ${bytePacket.isNotEmpty ? ByteData.sublistView(bytePacket).getUint16(11) / 100.0 : 0}'),
-                            Text('걸음수 => ${snapshot.data![2].last}'),
-                          ],
-                        );
-                      }
                       return Column(
                         children: [
                           Text('심박수 => ${snapshot.data![0].last}'),
-                          Text('체온 => ${0}'),
+                          Text(
+                              '체온 => ${taskModel.parsingTempData(snapshot.data![1])}'),
                           Text('걸음수 => ${snapshot.data![2].last}'),
                         ],
                       );
@@ -190,8 +145,9 @@ class _DemoPageState extends State<DemoPage> {
             TextButton(
               child: const Text('종료'),
               onPressed: () {
-                model.deviceDisConnect();
-                Navigator.of(context).pop();
+                taskModel
+                    .deviceDisConnect()
+                    .then((value) => Navigator.of(context).pop());
               },
             ),
           ],

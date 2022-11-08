@@ -52,38 +52,48 @@ class B7ProScanModel {
     _deviceScanSubscription?.cancel();
     _bleScaning.add(false);
   }
-
-  Uint8List _int16To8List(int input) {
-    return Uint8List.fromList([(input >> 8) & 0xFF, input & 0xff]);
-  }
 }
 
 class B7ProTaskModel extends B7ProScanModel {
-  String? deviceId;
-  late DiscoveredDevice? device;
   StreamSubscription? _connectSubscription;
+  late DiscoveredDevice? device;
 
-  B7ProTaskModel(this.device, this.deviceId);
+  final _bodyTemp = 0x24;
+  final _heartRate = 0xE5;
+  final _stepCount = 0XB1;
+  final _btCmdStart = 0x01;
+  final _hrCmdStart = 0x11;
+  final _hrCmdStop = 0x00;
+
+  Timer? _taskTimer;
+  Future<void>? _task;
 
   final _deviceConnectState = StreamController<ConnectionStateUpdate>();
   final _dataStream = StreamController<List<List<int>>>.broadcast();
 
-  Stream<List<List<int>>> get data => _dataStream.stream;
+  B7ProTaskModel(this.device);
+
+  Stream<List<List<int>>> get data {
+    _startGetData();
+    return _dataStream.stream;
+  }
 
   Stream<ConnectionStateUpdate> get connectState {
+    print("tt");
     _connectSubscription = flutterReactiveBle
         .connectToDevice(
       id: device!.id,
     )
         .listen(
       (state) {
+        debugPrint("connect : $state");
         _deviceConnectState.add(state);
       },
       onDone: () {
-        debugPrint("Device scan onDone");
+        debugPrint("Device Connect onDone");
       },
       onError: (Object e) {
-        debugPrint("Device scan fails with error: $e");
+        debugPrint("Device Connect fails with error: $e");
         deviceDisConnect();
       },
     );
@@ -91,44 +101,37 @@ class B7ProTaskModel extends B7ProScanModel {
     return _deviceConnectState.stream;
   }
 
-  void deviceDisConnect() {
-    _connectSubscription?.cancel();
+  Future<void> deviceDisConnect() async {
+    if (_task != null) {
+      await _task;
+      _taskTimer?.cancel();
+    }
+    await _connectSubscription?.cancel();
     _connectSubscription = null;
+    /* await _deviceConnectState.close(); */
   }
 
-  Timer? timer;
-
-  void cancleTimer() {
-    timer?.cancel();
-  }
-
-  QualifiedCharacteristic getQualifiedCharacteristic() =>
+  QualifiedCharacteristic get getComandCharacteristic =>
       QualifiedCharacteristic(
         characteristicId: B7ProCommServiceCharacteristicUuid.command,
         serviceId: B7ProServiceUuid.comm,
         deviceId: device!.id,
       );
 
-  final bodyTemp = 0x24;
-  final heartRate = 0xE5;
-  final stepCount = 0XB1;
-  final btCmdStart = 0x01;
-  final hrCmdStart = 0x11;
-  final hrCmdStop = 0x00;
+  QualifiedCharacteristic get getNotifyCharacteristic =>
+      QualifiedCharacteristic(
+        characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
+        serviceId: B7ProServiceUuid.comm,
+        deviceId: device!.id,
+      );
 
-  void getData() async {
-    final characteristic = getQualifiedCharacteristic();
-
-    final dataChannel = QualifiedCharacteristic(
-      characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
-      serviceId: B7ProServiceUuid.comm,
-      deviceId: device!.id,
-    );
-
+  void _startGetData() {
+    print("startData");
     List<List<int>> results = List<List<int>>.filled(3, [0]);
-    flutterReactiveBle.subscribeToCharacteristic(dataChannel).listen(
+    flutterReactiveBle
+        .subscribeToCharacteristic(getNotifyCharacteristic)
+        .listen(
       (event) {
-        print("event : $event");
         if (event.length == 4) {
           results[0] = event;
         } else if (event.length == 13) {
@@ -137,30 +140,52 @@ class B7ProTaskModel extends B7ProScanModel {
           results[2] = event;
         }
 
-        timer = Timer(
-          const Duration(seconds: 5),
-          () {
-            _dataStream.add(results);
-          },
-        );
+        _dataStream.add(results);
       },
     );
 
-    Timer.periodic(
+    _taskTimer = Timer.periodic(
       const Duration(seconds: 10),
-      (timer) async {
-        await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
-            value: [bodyTemp, btCmdStart]);
-
-/*         await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
-            value: [heartRate, hrCmdStart]);
-
-        await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
-            value: [stepCount]); */
+      (timer) {
+        _task = _getTask();
       },
     );
 
     /* await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
         value: [heartRate, hrCmdStop]); */
+  }
+
+  Future<void> _getTask() async {
+    try {
+      await flutterReactiveBle.writeCharacteristicWithResponse(
+          getComandCharacteristic,
+          value: [_bodyTemp, _btCmdStart]);
+
+      await flutterReactiveBle.writeCharacteristicWithResponse(
+          getComandCharacteristic,
+          value: [_heartRate, _hrCmdStart]);
+
+      await flutterReactiveBle.writeCharacteristicWithResponse(
+          getComandCharacteristic,
+          value: [_stepCount]);
+    } catch (e) {
+      debugPrint("Task Error :$e");
+    }
+  }
+
+  double parsingTempData(List<int> tempData) {
+    if (tempData.length == 13) {
+      var convertUnit8 = Uint8List.fromList(tempData);
+      final ByteData byteData = ByteData.sublistView(convertUnit8);
+
+      try {
+        return byteData.getInt16(11) / 100.0;
+      } catch (e) {
+        debugPrint("parsingTemData Error : $e");
+        return 0;
+      }
+    }
+
+    return 0.0;
   }
 }
