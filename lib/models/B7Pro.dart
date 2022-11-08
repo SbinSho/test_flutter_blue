@@ -7,9 +7,9 @@ import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import '../app_constant.dart';
 
-class B7ProModel {
-  static final B7ProModel _instance = B7ProModel();
-  static B7ProModel get instance => _instance;
+class B7ProScanModel {
+  static final B7ProScanModel _instance = B7ProScanModel();
+  static B7ProScanModel get instance => _instance;
 
   final flutterReactiveBle = FlutterReactiveBle();
 
@@ -58,12 +58,12 @@ class B7ProModel {
   }
 }
 
-class B7ProModelProcess extends B7ProModel {
+class B7ProTaskModel extends B7ProScanModel {
   String? deviceId;
   late DiscoveredDevice? device;
   StreamSubscription? _connectSubscription;
 
-  B7ProModelProcess(this.device, this.deviceId);
+  B7ProTaskModel(this.device, this.deviceId);
 
   final _deviceConnectState = StreamController<ConnectionStateUpdate>();
   final _dataStream = StreamController<List<List<int>>>.broadcast();
@@ -112,8 +112,9 @@ class B7ProModelProcess extends B7ProModel {
   final bodyTemp = 0x24;
   final heartRate = 0xE5;
   final stepCount = 0XB1;
-  final cmdStart = 0x11;
-  final cmdStop = 0x00;
+  final btCmdStart = 0x01;
+  final hrCmdStart = 0x11;
+  final hrCmdStop = 0x00;
 
   void getData() async {
     final characteristic = getQualifiedCharacteristic();
@@ -123,15 +124,6 @@ class B7ProModelProcess extends B7ProModel {
       serviceId: B7ProServiceUuid.comm,
       deviceId: device!.id,
     );
-
-    await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
-        value: [bodyTemp, cmdStart]);
-
-    await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
-        value: [heartRate, cmdStart]);
-
-    /* await flutterReactiveBle
-        .writeCharacteristicWithResponse(qAstepCount, value: [stepCount]); */
 
     List<List<int>> results = List<List<int>>.filled(3, [0]);
     flutterReactiveBle.subscribeToCharacteristic(dataChannel).listen(
@@ -153,5 +145,22 @@ class B7ProModelProcess extends B7ProModel {
         );
       },
     );
+
+    Timer.periodic(
+      const Duration(seconds: 10),
+      (timer) async {
+        await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
+            value: [bodyTemp, btCmdStart]);
+
+/*         await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
+            value: [heartRate, hrCmdStart]);
+
+        await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
+            value: [stepCount]); */
+      },
+    );
+
+    /* await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
+        value: [heartRate, hrCmdStop]); */
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -28,7 +29,7 @@ class DemoPage extends StatefulWidget {
 }
 
 class _DemoPageState extends State<DemoPage> {
-  final B7ProModel scanner = B7ProModel.instance;
+  final B7ProScanModel scanner = B7ProScanModel.instance;
   final connectWidgets = <Widget>[];
 
   @override
@@ -132,7 +133,7 @@ class _DemoPageState extends State<DemoPage> {
         },
       );
   Future<void> _showDialog(DiscoveredDevice device) {
-    final model = B7ProModelProcess(device, null);
+    final model = B7ProTaskModel(device, null);
     return showDialog<void>(
       context: context,
       barrierDismissible: false, // user must tap button!
@@ -150,59 +151,28 @@ class _DemoPageState extends State<DemoPage> {
 
                   return StreamBuilder<List<List<int>>>(
                     stream: model.data,
-                    initialData: [],
+                    initialData: List<List<int>>.filled(3, [0]),
                     builder: (context, snapshot) {
-                      if (snapshot.data != null && snapshot.data!.isNotEmpty) {
-                        if (snapshot.data!.length > 2) {
-                          debugPrint("0 : ${snapshot.data![0]}");
-                          debugPrint("1 : ${snapshot.data![1]}");
-                          debugPrint("2 : ${snapshot.data![2]}");
-                        }
+                      var bytePacket = Uint8List.fromList(snapshot.data![1]);
+                      if (snapshot.data![1][0] != 0) {
+                        return Column(
+                          children: [
+                            Text('심박수 => ${snapshot.data![0].last}'),
+                            Text(
+                                '체온 => ${bytePacket.isNotEmpty ? ByteData.sublistView(bytePacket).getUint16(11) / 100.0 : 0}'),
+                            Text('걸음수 => ${snapshot.data![2].last}'),
+                          ],
+                        );
                       }
-
-                      return Container();
+                      return Column(
+                        children: [
+                          Text('심박수 => ${snapshot.data![0].last}'),
+                          Text('체온 => ${0}'),
+                          Text('걸음수 => ${snapshot.data![2].last}'),
+                        ],
+                      );
                     },
                   );
-
-                  /* return ListBody(
-                    children: <Widget>[
-                      StreamBuilder<List<int>>(
-                        stream: model.getHeartRate(),
-                        initialData: const [],
-                        builder: (context, snapshot) {
-                          if (snapshot.data != null &&
-                              snapshot.data!.isNotEmpty) {
-                            print("data : ${snapshot.data!}");
-
-                            debugPrint("${snapshot.data!.last}");
-                            return Text('심박수 => ${snapshot.data!.last}');
-                          }
-                          return const Text('심박수 => 0');
-                        },
-                      ),
-                      /* StreamBuilder<List<int>>(
-                          stream: model.getBodyTemp(),
-                          builder: (context, snapshot) {
-                            if (snapshot.data != null &&
-                                snapshot.data!.isNotEmpty) {
-                              debugPrint("${snapshot.data!.first}");
-                              return Text(
-                                  '체온 => ${snapshot.data!.first}, ${snapshot.data!.length > 1 ? snapshot.data![1] : 0}');
-                            }
-                            return const Text('체온 => 0');
-                          }), */
-                      /* StreamBuilder<List<int>>(
-                          stream: processModel.getStepCount(),
-                          builder: (context, snapshot) {
-                            if (snapshot.data != null &&
-                                snapshot.data!.isNotEmpty) {
-                              debugPrint("${snapshot.data!.last}");
-                              return Text('걸음수 => ${snapshot.data!.last}');
-                            }
-                            return const Text('걸음수 => 0');
-                          }), */
-                    ],
-                  ); */
                 } else {
                   return Column(
                     children: [
