@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -97,62 +96,78 @@ class _DemoPageState extends State<DemoPage> {
       context: context,
       barrierDismissible: false, // user must tap button!
       builder: (BuildContext context) {
-        print("test");
-        return AlertDialog(
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              const Text('데이터 모니터링'),
-              Text(taskModel.device!.name),
+        return WillPopScope(
+          onWillPop: null,
+          child: AlertDialog(
+            title: Text(taskModel.device!.name),
+            content: SingleChildScrollView(
+              child: StreamBuilder<DeviceConnectionState>(
+                initialData: DeviceConnectionState.connecting,
+                stream: taskModel.connectState,
+                builder: (context, snapshot) {
+                  switch (snapshot.data!) {
+                    case DeviceConnectionState.connecting:
+                      return _buildIng(snapshot.data
+                              ?.toString()
+                              .split(".")
+                              .last
+                              .toString() ??
+                          "");
+
+                    case DeviceConnectionState.connected:
+                      return StreamBuilder<List<List<int>>>(
+                        stream: taskModel.dataStream,
+                        initialData: List<List<int>>.filled(3, [0]),
+                        builder: (context, snapshot) {
+                          return Column(
+                            children: [
+                              Text('심박수 => ${snapshot.data![0].last}'),
+                              Text(
+                                  '체온 => ${taskModel.parsingTempData(snapshot.data![1])}'),
+                              Text('걸음수 => ${snapshot.data![2].last}'),
+                            ],
+                          );
+                        },
+                      );
+                    case DeviceConnectionState.disconnecting:
+                      return _buildIng(snapshot.data
+                              ?.toString()
+                              .split(".")
+                              .last
+                              .toString() ??
+                          "");
+                    case DeviceConnectionState.disconnected:
+                      return ElevatedButton(
+                        onPressed: taskModel.connect,
+                        child: const Text("재연결"),
+                      );
+                  }
+                },
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                child: const Text('종료'),
+                onPressed: () {
+                  taskModel
+                      .disConnect()
+                      .then((value) => Navigator.of(context).pop());
+                },
+              ),
             ],
           ),
-          content: SingleChildScrollView(
-            child: StreamBuilder<ConnectionStateUpdate>(
-              stream: taskModel.connectState,
-              builder: (context, snapshot) {
-                print("state : ${snapshot.data?.connectionState}");
-                if (snapshot.data != null &&
-                    snapshot.data!.connectionState ==
-                        DeviceConnectionState.connected) {
-                  return StreamBuilder<List<List<int>>>(
-                    stream: taskModel.data,
-                    initialData: List<List<int>>.filled(3, [0]),
-                    builder: (context, snapshot) {
-                      return Column(
-                        children: [
-                          Text('심박수 => ${snapshot.data![0].last}'),
-                          Text(
-                              '체온 => ${taskModel.parsingTempData(snapshot.data![1])}'),
-                          Text('걸음수 => ${snapshot.data![2].last}'),
-                        ],
-                      );
-                    },
-                  );
-                } else {
-                  return Column(
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 8),
-                      Text(
-                          "${snapshot.data?.connectionState.toString().split(".").last}"),
-                    ],
-                  );
-                }
-              },
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('종료'),
-              onPressed: () {
-                taskModel
-                    .deviceDisConnect()
-                    .then((value) => Navigator.of(context).pop());
-              },
-            ),
-          ],
         );
       },
+    );
+  }
+
+  Widget _buildIng(String state) {
+    return Column(
+      children: [
+        const CircularProgressIndicator(),
+        const SizedBox(height: 8.0),
+        Text(state),
+      ],
     );
   }
 }

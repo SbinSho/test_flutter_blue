@@ -55,7 +55,6 @@ class B7ProScanModel {
 }
 
 class B7ProTaskModel extends B7ProScanModel {
-  StreamSubscription? _connectSubscription;
   late DiscoveredDevice? device;
 
   final _bodyTemp = 0x24;
@@ -63,52 +62,96 @@ class B7ProTaskModel extends B7ProScanModel {
   final _stepCount = 0XB1;
   final _btCmdStart = 0x01;
   final _hrCmdStart = 0x11;
-  final _hrCmdStop = 0x00;
+  // final _hrCmdStop = 0x00;
+  // command send 대기 시간
+  final _sendCmdMs = 500;
 
-  Timer? _taskTimer;
+  // data send task
   Future<void>? _task;
+  final _resultDatas = List<List<int>>.filled(3, [0]);
 
-  final _deviceConnectState = StreamController<ConnectionStateUpdate>();
+  // band data stream
   final _dataStream = StreamController<List<List<int>>>.broadcast();
+  StreamSubscription<List<int>>? _dataSubscription;
+  Stream<List<List<int>>> get dataStream => _dataStream.stream;
 
-  B7ProTaskModel(this.device);
+  // connection state stream
+  final _connectionStream = StreamController<DeviceConnectionState>();
+  StreamSubscription<ConnectionStateUpdate>? _connectSubscription;
+  Stream<DeviceConnectionState> get connectState => _connectionStream.stream;
 
-  Stream<List<List<int>>> get data {
-    _startGetData();
-    return _dataStream.stream;
+  // connection timer
+  Timer? _connectionTimer;
+  final _connectionTimeout = const Duration(seconds: 10);
+
+  B7ProTaskModel(this.device) {
+    connect();
   }
 
-  Stream<ConnectionStateUpdate> get connectState {
-    print("tt");
-    _connectSubscription = flutterReactiveBle
-        .connectToDevice(
+  void connect() {
+    _connectionTimer = Timer(_connectionTimeout, () {
+      _connectionStream.add(DeviceConnectionState.disconnected);
+      disConnect();
+    });
+
+    _connectSubscription = flutterReactiveBle.connectToDevice(
       id: device!.id,
-    )
-        .listen(
+      connectionTimeout: _connectionTimeout,
+      servicesWithCharacteristicsToDiscover: {
+        B7ProServiceUuid.comm: [
+          B7ProCommServiceCharacteristicUuid.command,
+          B7ProCommServiceCharacteristicUuid.rxNotify,
+        ]
+      },
+    ).listen(
       (state) {
-        debugPrint("connect : $state");
-        _deviceConnectState.add(state);
+        if (state.connectionState == DeviceConnectionState.connected) {
+          _connectionTimer?.cancel();
+          _connectionTimer = null;
+          _task = _startTask();
+        } else if (state.connectionState ==
+                DeviceConnectionState.disconnected ||
+            state.connectionState == DeviceConnectionState.disconnecting) {
+          disConnect();
+        }
+
+        _connectionStream.add(state.connectionState);
       },
       onDone: () {
         debugPrint("Device Connect onDone");
       },
       onError: (Object e) {
         debugPrint("Device Connect fails with error: $e");
-        deviceDisConnect();
       },
     );
 
-    return _deviceConnectState.stream;
+    _dataSubscription = flutterReactiveBle
+        .subscribeToCharacteristic(getNotifyCharacteristic)
+        .listen(
+      (event) {
+        if (event.length == 4) {
+          _resultDatas[0] = event;
+        } else if (event.length == 13) {
+          _resultDatas[1] = event;
+        } else if (event.length == 18) {
+          _resultDatas[2] = event;
+        }
+
+        _dataStream.add(_resultDatas);
+      },
+    );
   }
 
-  Future<void> deviceDisConnect() async {
+  Future<void> disConnect() async {
     if (_task != null) {
       await _task;
-      _taskTimer?.cancel();
+      _task = null;
     }
+
+    await _dataSubscription?.cancel();
     await _connectSubscription?.cancel();
     _connectSubscription = null;
-    /* await _deviceConnectState.close(); */
+    _dataSubscription = null;
   }
 
   QualifiedCharacteristic get getComandCharacteristic =>
@@ -125,53 +168,28 @@ class B7ProTaskModel extends B7ProScanModel {
         deviceId: device!.id,
       );
 
-  void _startGetData() {
-    print("startData");
-    List<List<int>> results = List<List<int>>.filled(3, [0]);
-    flutterReactiveBle
-        .subscribeToCharacteristic(getNotifyCharacteristic)
-        .listen(
-      (event) {
-        if (event.length == 4) {
-          results[0] = event;
-        } else if (event.length == 13) {
-          results[1] = event;
-        } else if (event.length == 18) {
-          results[2] = event;
-        }
-
-        _dataStream.add(results);
-      },
-    );
-
-    _taskTimer = Timer.periodic(
-      const Duration(seconds: 10),
-      (timer) {
-        _task = _getTask();
-      },
-    );
-
-    /* await flutterReactiveBle.writeCharacteristicWithResponse(characteristic,
-        value: [heartRate, hrCmdStop]); */
-  }
-
-  Future<void> _getTask() async {
+  Future<void> _startTask() async {
     try {
-      await flutterReactiveBle.writeCharacteristicWithResponse(
-          getComandCharacteristic,
-          value: [_bodyTemp, _btCmdStart]);
+      var taskList = [
+        [_bodyTemp, _btCmdStart],
+        [_heartRate, _hrCmdStart],
+        [_stepCount],
+      ];
 
-      await flutterReactiveBle.writeCharacteristicWithResponse(
-          getComandCharacteristic,
-          value: [_heartRate, _hrCmdStart]);
-
-      await flutterReactiveBle.writeCharacteristicWithResponse(
-          getComandCharacteristic,
-          value: [_stepCount]);
+      while (taskList.isNotEmpty) {
+        await _sendCmd(taskList.first);
+        taskList.removeAt(0);
+        await Future.delayed(Duration(milliseconds: _sendCmdMs));
+      }
     } catch (e) {
       debugPrint("Task Error :$e");
     }
   }
+
+  Future<void> _sendCmd(List<int> value) async =>
+      await flutterReactiveBle.writeCharacteristicWithoutResponse(
+          getComandCharacteristic,
+          value: value);
 
   double parsingTempData(List<int> tempData) {
     if (tempData.length == 13) {
@@ -182,7 +200,7 @@ class B7ProTaskModel extends B7ProScanModel {
         return byteData.getInt16(11) / 100.0;
       } catch (e) {
         debugPrint("parsingTemData Error : $e");
-        return 0;
+        return 0.0;
       }
     }
 
