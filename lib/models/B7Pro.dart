@@ -89,46 +89,44 @@ class B7ProTaskModel extends B7ProScanModel {
   }
 
   void connect() {
-    _connectionTimer = Timer(_connectionTimeout, () {
-      _connectionStream.add(DeviceConnectionState.disconnected);
-      disConnect();
-    });
+    try {
+      _connectionTimer = Timer(_connectionTimeout, () {
+        _connectionStream.add(DeviceConnectionState.disconnected);
+        disConnect();
+      });
 
-    _connectSubscription = flutterReactiveBle.connectToDevice(
-      id: device!.id,
-      connectionTimeout: _connectionTimeout,
-      servicesWithCharacteristicsToDiscover: {
-        B7ProServiceUuid.comm: [
-          B7ProCommServiceCharacteristicUuid.command,
-          B7ProCommServiceCharacteristicUuid.rxNotify,
-        ]
-      },
-    ).listen(
-      (state) {
-        if (state.connectionState == DeviceConnectionState.connected) {
-          _connectionTimer?.cancel();
-          _connectionTimer = null;
-          _task = _startTask();
-        } else if (state.connectionState ==
-                DeviceConnectionState.disconnected ||
-            state.connectionState == DeviceConnectionState.disconnecting) {
+      _connectSubscription = flutterReactiveBle.connectToDevice(
+        id: device!.id,
+        connectionTimeout: _connectionTimeout,
+        servicesWithCharacteristicsToDiscover: {
+          B7ProServiceUuid.comm: [
+            B7ProCommServiceCharacteristicUuid.command,
+            B7ProCommServiceCharacteristicUuid.rxNotify,
+          ]
+        },
+      ).listen(
+        (state) {
+          if (state.connectionState == DeviceConnectionState.connected) {
+            _connectionTimer?.cancel();
+            _connectionTimer = null;
+            _task = _startTask();
+          }
+
+          _connectionStream.add(state.connectionState);
+        },
+        onDone: () {
           disConnect();
-        }
+          debugPrint("Device Connect onDone");
+        },
+        onError: (error) {
+          disConnect();
+          debugPrint("Device connectToDevice error: $error");
+        },
+      );
 
-        _connectionStream.add(state.connectionState);
-      },
-      onDone: () {
-        debugPrint("Device Connect onDone");
-      },
-      onError: (Object e) {
-        debugPrint("Device Connect fails with error: $e");
-      },
-    );
-
-    _dataSubscription = flutterReactiveBle
-        .subscribeToCharacteristic(getNotifyCharacteristic)
-        .listen(
-      (event) {
+      _dataSubscription = flutterReactiveBle
+          .subscribeToCharacteristic(getNotifyCharacteristic)
+          .listen((event) {
         if (event.length == 4) {
           _resultDatas[0] = event;
         } else if (event.length == 13) {
@@ -138,8 +136,16 @@ class B7ProTaskModel extends B7ProScanModel {
         }
 
         _dataStream.add(_resultDatas);
-      },
-    );
+      }, onDone: () {
+        disConnect();
+        debugPrint("Device SubscribeToCharacteristic onDone");
+      }, onError: (error) {
+        disConnect();
+        debugPrint("Device SubscribeToCharacteristic onError : $error");
+      });
+    } catch (e) {
+      debugPrint("Connect Error : $e");
+    }
   }
 
   Future<void> disConnect() async {
@@ -186,10 +192,26 @@ class B7ProTaskModel extends B7ProScanModel {
     }
   }
 
-  Future<void> _sendCmd(List<int> value) async =>
-      await flutterReactiveBle.writeCharacteristicWithoutResponse(
-          getComandCharacteristic,
-          value: value);
+  Future<void> _sendCmd(List<int> value) async {
+    final completer = Completer<void>();
+
+    try {
+      flutterReactiveBle
+          .writeCharacteristicWithResponse(getComandCharacteristic,
+              value: value)
+          .then(
+            (value) => completer.complete(),
+          )
+          .catchError((onError) {
+        debugPrint("onError! : $onError");
+      });
+    } catch (e) {
+      debugPrint("Send Cmd Error : $e");
+      completer.complete();
+    }
+
+    return completer.future;
+  }
 
   double parsingTempData(List<int> tempData) {
     if (tempData.length == 13) {
