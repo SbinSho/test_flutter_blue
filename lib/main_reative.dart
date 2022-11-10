@@ -107,12 +107,10 @@ class _DemoPageState extends State<DemoPage> {
                 builder: (context, snapshot) {
                   switch (snapshot.data!) {
                     case DeviceConnectionState.connecting:
-                      return _buildIng(snapshot.data
-                              ?.toString()
-                              .split(".")
-                              .last
-                              .toString() ??
-                          "");
+                      return _buildIng(
+                        snapshot.data?.toString().split(".").last.toString() ??
+                            "",
+                      );
 
                     case DeviceConnectionState.connected:
                       return StreamBuilder<List<List<int>>>(
@@ -130,12 +128,10 @@ class _DemoPageState extends State<DemoPage> {
                         },
                       );
                     case DeviceConnectionState.disconnecting:
-                      return _buildIng(snapshot.data
-                              ?.toString()
-                              .split(".")
-                              .last
-                              .toString() ??
-                          "");
+                      return _buildIng(
+                        snapshot.data?.toString().split(".").last.toString() ??
+                            "",
+                      );
                     case DeviceConnectionState.disconnected:
                       return ElevatedButton(
                         onPressed: taskModel.connect,

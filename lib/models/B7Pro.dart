@@ -16,41 +16,43 @@ class B7ProScanModel {
   // key : device.mac, value : device object
   Map<String, DiscoveredDevice> deviceInfo = {};
 
-  final _bleScaning = StreamController<bool>.broadcast();
-  final _devices = StreamController<Map<String, DiscoveredDevice>>.broadcast();
+  final _bleScaningStream = StreamController<bool>.broadcast();
+  final _devicesStream =
+      StreamController<Map<String, DiscoveredDevice>>.broadcast();
   StreamSubscription? _deviceScanSubscription;
 
-  Stream<bool> get scanningState => _bleScaning.stream;
-  Stream<Map<String, DiscoveredDevice>> get deviceState => _devices.stream;
+  Stream<bool> get scanningState => _bleScaningStream.stream;
+  Stream<Map<String, DiscoveredDevice>> get deviceState =>
+      _devicesStream.stream;
 
   void scanStart([int scanningTime = 10]) {
     deviceInfo.clear();
-    _bleScaning.add(true);
+    _bleScaningStream.add(true);
     _deviceScanSubscription = flutterReactiveBle.scanForDevices(
       withServices: [
-        Uuid.parse("00001800-0000-1000-8000-00805f9b34fb"),
-        Uuid.parse("00002222-0000-1000-8000-00805f9b34fb"),
-        Uuid.parse("0000fee7-0000-1000-8000-00805f9b34fb"),
+        B7ProAdvertisedServiceUuid.service1,
+        B7ProAdvertisedServiceUuid.service2,
+        B7ProAdvertisedServiceUuid.service3,
       ],
       scanMode: ScanMode.lowLatency,
-    ).listen(
-      (device) {
-        if (device.name != "") {
-          if (!deviceInfo.containsKey(device.id)) {
-            deviceInfo[device.id] = device;
-            _devices.add(deviceInfo);
-            _bleScaning.add(true);
-          }
+    ).listen((device) {
+      if (device.name != "") {
+        if (!deviceInfo.containsKey(device.id)) {
+          deviceInfo[device.id] = device;
+          _devicesStream.add(deviceInfo);
+          _bleScaningStream.add(true);
         }
-      },
-    );
+      }
+    }, onError: (error) {
+      debugPrint("Scan Device Error : $error");
+    });
 
     Timer(Duration(seconds: scanningTime), stopScan);
   }
 
   void stopScan() {
     _deviceScanSubscription?.cancel();
-    _bleScaning.add(false);
+    _bleScaningStream.add(false);
   }
 }
 
@@ -62,13 +64,13 @@ class B7ProTaskModel extends B7ProScanModel {
   final _stepCount = 0XB1;
   final _btCmdStart = 0x01;
   final _hrCmdStart = 0x11;
-  // final _hrCmdStop = 0x00;
+  final _hrCmdStop = 0x00;
   // command send 대기 시간
   final _sendCmdMs = 500;
 
   // data send task
   Future<void>? _task;
-  final _resultDatas = List<List<int>>.filled(3, [0]);
+  final _bandStreamDatas = List<List<int>>.filled(3, [0]);
 
   // band data stream
   final _dataStream = StreamController<List<List<int>>>.broadcast();
@@ -88,64 +90,45 @@ class B7ProTaskModel extends B7ProScanModel {
     connect();
   }
 
-  void connect() {
-    try {
-      _connectionTimer = Timer(_connectionTimeout, () {
-        _connectionStream.add(DeviceConnectionState.disconnected);
-        disConnect();
-      });
+  Future<void> connect() async {
+    _connectionTimer = Timer(_connectionTimeout, () {
+      debugPrint("connection timeout.");
+      _connectionStream.add(DeviceConnectionState.disconnected);
+      disConnect();
+    });
 
-      _connectSubscription = flutterReactiveBle.connectToDevice(
-        id: device!.id,
-        connectionTimeout: _connectionTimeout,
-        servicesWithCharacteristicsToDiscover: {
-          B7ProServiceUuid.comm: [
-            B7ProCommServiceCharacteristicUuid.command,
-            B7ProCommServiceCharacteristicUuid.rxNotify,
-          ]
-        },
-      ).listen(
-        (state) {
-          if (state.connectionState == DeviceConnectionState.connected) {
-            _connectionTimer?.cancel();
-            _connectionTimer = null;
-            _task = _startTask();
-          }
-
-          _connectionStream.add(state.connectionState);
-        },
-        onDone: () {
-          disConnect();
-          debugPrint("Device Connect onDone");
-        },
-        onError: (error) {
-          disConnect();
-          debugPrint("Device connectToDevice error: $error");
-        },
-      );
-
-      _dataSubscription = flutterReactiveBle
-          .subscribeToCharacteristic(getNotifyCharacteristic)
-          .listen((event) {
-        if (event.length == 4) {
-          _resultDatas[0] = event;
-        } else if (event.length == 13) {
-          _resultDatas[1] = event;
-        } else if (event.length == 18) {
-          _resultDatas[2] = event;
+    _connectSubscription = flutterReactiveBle.connectToDevice(
+      id: device!.id,
+      connectionTimeout: _connectionTimeout,
+      servicesWithCharacteristicsToDiscover: {
+        B7ProServiceUuid.comm: [
+          B7ProCommServiceCharacteristicUuid.command,
+          B7ProCommServiceCharacteristicUuid.rxNotify,
+        ]
+      },
+    ).listen(
+      (state) {
+        if (state.connectionState == DeviceConnectionState.connected) {
+          // Connection timeout timer cancle
+          _connectionTimer?.cancel();
+          _connectionTimer = null;
+          // band response data subscription
+          _dataSubscription = _getDataSubscription();
+          // band request data commnad
+          _task = _startTask();
         }
 
-        _dataStream.add(_resultDatas);
-      }, onDone: () {
+        _connectionStream.add(state.connectionState);
+      },
+      onDone: () {
         disConnect();
-        debugPrint("Device SubscribeToCharacteristic onDone");
-      }, onError: (error) {
+        debugPrint("Device Connect onDone");
+      },
+      onError: (error) {
         disConnect();
-        debugPrint("Device SubscribeToCharacteristic onError : $error");
-      });
-    } catch (e) {
-      debugPrint("Connect Error : $e");
-    }
+        debugPrint("Device connectToDevice error: $error");
+      },
+    );
   }
 
   Future<void> disConnect() async {
@@ -159,6 +142,30 @@ class B7ProTaskModel extends B7ProScanModel {
     _connectSubscription = null;
     _dataSubscription = null;
   }
+
+  StreamSubscription<List<int>> _getDataSubscription() => flutterReactiveBle
+          .subscribeToCharacteristic(getNotifyCharacteristic)
+          .listen(
+        (data) {
+          debugPrint("data length : ${data.length}");
+          debugPrint("data : $data");
+          if (data.length == 4) {
+            _bandStreamDatas[0] = data;
+          } else if (data.length == 13) {
+            _bandStreamDatas[1] = data;
+          } else if (data.length == 18) {
+            _bandStreamDatas[2] = data;
+          }
+
+          _dataStream.add(_bandStreamDatas);
+        },
+        onDone: () {
+          debugPrint("Device SubscribeToCharacteristic onDone");
+        },
+        onError: (error) {
+          debugPrint("Device SubscribeToCharacteristic onError : $error");
+        },
+      );
 
   QualifiedCharacteristic get getComandCharacteristic =>
       QualifiedCharacteristic(
@@ -176,15 +183,25 @@ class B7ProTaskModel extends B7ProScanModel {
 
   Future<void> _startTask() async {
     try {
-      var taskList = [
+      var commnads = [
         [_bodyTemp, _btCmdStart],
         [_heartRate, _hrCmdStart],
         [_stepCount],
       ];
 
-      while (taskList.isNotEmpty) {
-        await _sendCmd(taskList.first);
-        taskList.removeAt(0);
+      var cleanCommands = [
+        [_heartRate, _hrCmdStop]
+      ];
+
+      while (commnads.isNotEmpty) {
+        await _sendCmd(commnads.first);
+        commnads.removeAt(0);
+        await Future.delayed(Duration(milliseconds: _sendCmdMs));
+      }
+
+      while (cleanCommands.isNotEmpty) {
+        await _sendCmd(cleanCommands.first);
+        cleanCommands.removeAt(0);
         await Future.delayed(Duration(milliseconds: _sendCmdMs));
       }
     } catch (e) {
@@ -195,20 +212,16 @@ class B7ProTaskModel extends B7ProScanModel {
   Future<void> _sendCmd(List<int> value) async {
     final completer = Completer<void>();
 
-    try {
-      flutterReactiveBle
-          .writeCharacteristicWithResponse(getComandCharacteristic,
-              value: value)
-          .then(
-            (value) => completer.complete(),
-          )
-          .catchError((onError) {
+    flutterReactiveBle
+        .writeCharacteristicWithResponse(getComandCharacteristic, value: value)
+        .then(
+          (value) => completer.complete(),
+        )
+        .catchError(
+      (onError) {
         debugPrint("onError! : $onError");
-      });
-    } catch (e) {
-      debugPrint("Send Cmd Error : $e");
-      completer.complete();
-    }
+      },
+    );
 
     return completer.future;
   }
