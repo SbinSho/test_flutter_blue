@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:synchronized/synchronized.dart';
 
 import '../app_constant.dart';
 
@@ -56,8 +57,49 @@ class B7ProScanModel {
   }
 }
 
-class B7ProTaskModel extends B7ProScanModel {
-  late DiscoveredDevice? device;
+class B7ProDataModel {
+  late final String deviceMac;
+
+  B7ProDataModel(this.deviceMac);
+
+  final _heartStream = StreamController<double>.broadcast();
+  final _tempStream = StreamController<double>.broadcast();
+  final _stepStream = StreamController<double>.broadcast();
+
+  Stream<double> get heartStream => _heartStream.stream;
+  Stream<double> get tempStream => _tempStream.stream;
+  Stream<double> get stepStream => _stepStream.stream;
+
+  void updateStream(List<int> data) {
+    if (data.length == 4) {
+      _heartStream.add(data.last.toDouble());
+    } else if (data.length == 13) {
+      _tempStream.add(_parsingTempData(data));
+    } else if (data.length == 18) {
+      _stepStream.add(data.last.toDouble());
+    }
+  }
+
+  double _parsingTempData(List<int> tempData) {
+    if (tempData.length == 13) {
+      var convertUnit8 = Uint8List.fromList(tempData);
+      final ByteData byteData = ByteData.sublistView(convertUnit8);
+
+      try {
+        return byteData.getInt16(11) / 100.0;
+      } catch (e) {
+        debugPrint("parsingTemData Error : $e");
+        return 0.0;
+      }
+    }
+
+    return 0.0;
+  }
+}
+
+class B7ProCommModel extends B7ProScanModel {
+  late DiscoveredDevice device;
+  late B7ProDataModel dataModel;
 
   final _bodyTemp = 0x24;
   final _heartRate = 0xE5;
@@ -70,15 +112,20 @@ class B7ProTaskModel extends B7ProScanModel {
 
   // data send task
   Future<void>? _task;
-  final _bandStreamDatas = List<List<int>>.filled(3, [0]);
+  // final _bandStreamDatas = List<List<int>>.filled(3, [0]);
 
   // band data stream
-  final _dataStream = StreamController<List<List<int>>>.broadcast();
   StreamSubscription<List<int>>? _dataSubscription;
-  Stream<List<List<int>>> get dataStream => _dataStream.stream;
+
+  Stream<double> get heartStream => dataModel.heartStream;
+  Stream<double> get tempStream => dataModel.tempStream;
+  Stream<double> get stepStream => dataModel.stepStream;
+
+  // final _dataStream = StreamController<List<List<int>>>.broadcast();
+  // Stream<List<List<int>>> get dataStream => _dataStream.stream;
 
   // connection state stream
-  final _connectionStream = StreamController<DeviceConnectionState>();
+  final _connectionStream = StreamController<DeviceConnectionState>.broadcast();
   StreamSubscription<ConnectionStateUpdate>? _connectSubscription;
   Stream<DeviceConnectionState> get connectState => _connectionStream.stream;
 
@@ -86,9 +133,42 @@ class B7ProTaskModel extends B7ProScanModel {
   Timer? _connectionTimer;
   final _connectionTimeout = const Duration(seconds: 10);
 
-  B7ProTaskModel(this.device) {
-    connect();
+  B7ProCommModel(DiscoveredDevice inputDevice) {
+    device = inputDevice;
+    dataModel = B7ProDataModel(device.id);
+    // connect();
   }
+
+  StreamSubscription<List<int>> _getDataSubscription() => flutterReactiveBle
+          .subscribeToCharacteristic(getNotifyCharacteristic)
+          .listen(
+        (data) {
+          debugPrint("data length : ${data.length}");
+          debugPrint("data : $data");
+
+          dataModel.updateStream(data);
+        },
+        onDone: () {
+          debugPrint("Device SubscribeToCharacteristic onDone");
+        },
+        onError: (error) {
+          debugPrint("Device SubscribeToCharacteristic onError : $error");
+        },
+      );
+
+  QualifiedCharacteristic get getComandCharacteristic =>
+      QualifiedCharacteristic(
+        characteristicId: B7ProCommServiceCharacteristicUuid.command,
+        serviceId: B7ProServiceUuid.comm,
+        deviceId: device.id,
+      );
+
+  QualifiedCharacteristic get getNotifyCharacteristic =>
+      QualifiedCharacteristic(
+        characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
+        serviceId: B7ProServiceUuid.comm,
+        deviceId: device.id,
+      );
 
   Future<void> connect() async {
     _connectionTimer = Timer(_connectionTimeout, () {
@@ -98,7 +178,7 @@ class B7ProTaskModel extends B7ProScanModel {
     });
 
     _connectSubscription = flutterReactiveBle.connectToDevice(
-      id: device!.id,
+      id: device.id,
       connectionTimeout: _connectionTimeout,
       servicesWithCharacteristicsToDiscover: {
         B7ProServiceUuid.comm: [
@@ -115,16 +195,25 @@ class B7ProTaskModel extends B7ProScanModel {
           // band response data subscription
           _dataSubscription = _getDataSubscription();
           // band request data commnad
-          _task = _startTask();
+          _taskTimer = Timer.periodic(
+            const Duration(seconds: 10),
+            (timer) {
+              _task = startTask();
+            },
+          );
         }
 
         _connectionStream.add(state.connectionState);
       },
       onDone: () {
+        _connectionTimer?.cancel();
+        _connectionTimer = null;
         disConnect();
         debugPrint("Device Connect onDone");
       },
       onError: (error) {
+        _connectionTimer?.cancel();
+        _connectionTimer = null;
         disConnect();
         debugPrint("Device connectToDevice error: $error");
       },
@@ -132,6 +221,9 @@ class B7ProTaskModel extends B7ProScanModel {
   }
 
   Future<void> disConnect() async {
+    debugPrint("call disConnect()");
+
+    _taskTimer?.cancel();
     if (_task != null) {
       await _task;
       _task = null;
@@ -143,67 +235,35 @@ class B7ProTaskModel extends B7ProScanModel {
     _dataSubscription = null;
   }
 
-  StreamSubscription<List<int>> _getDataSubscription() => flutterReactiveBle
-          .subscribeToCharacteristic(getNotifyCharacteristic)
-          .listen(
-        (data) {
-          debugPrint("data length : ${data.length}");
-          debugPrint("data : $data");
-          if (data.length == 4) {
-            _bandStreamDatas[0] = data;
-          } else if (data.length == 13) {
-            _bandStreamDatas[1] = data;
-          } else if (data.length == 18) {
-            _bandStreamDatas[2] = data;
-          }
+  Timer? _taskTimer;
 
-          _dataStream.add(_bandStreamDatas);
-        },
-        onDone: () {
-          debugPrint("Device SubscribeToCharacteristic onDone");
-        },
-        onError: (error) {
-          debugPrint("Device SubscribeToCharacteristic onError : $error");
-        },
-      );
-
-  QualifiedCharacteristic get getComandCharacteristic =>
-      QualifiedCharacteristic(
-        characteristicId: B7ProCommServiceCharacteristicUuid.command,
-        serviceId: B7ProServiceUuid.comm,
-        deviceId: device!.id,
-      );
-
-  QualifiedCharacteristic get getNotifyCharacteristic =>
-      QualifiedCharacteristic(
-        characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
-        serviceId: B7ProServiceUuid.comm,
-        deviceId: device!.id,
-      );
-
-  Future<void> _startTask() async {
+  Future<void> startTask() async {
     try {
-      var commnads = [
-        [_bodyTemp, _btCmdStart],
-        [_heartRate, _hrCmdStart],
-        [_stepCount],
-      ];
+      final lock = Lock();
 
-      var cleanCommands = [
-        [_heartRate, _hrCmdStop]
-      ];
+      await lock.synchronized(() async {
+        var commnads = [
+          [_bodyTemp, _btCmdStart],
+          [_heartRate, _hrCmdStart],
+          [_stepCount],
+        ];
 
-      while (commnads.isNotEmpty) {
-        await _sendCmd(commnads.first);
-        commnads.removeAt(0);
-        await Future.delayed(Duration(milliseconds: _sendCmdMs));
-      }
+        var cleanCommands = [
+          [_heartRate, _hrCmdStop]
+        ];
 
-      while (cleanCommands.isNotEmpty) {
-        await _sendCmd(cleanCommands.first);
-        cleanCommands.removeAt(0);
-        await Future.delayed(Duration(milliseconds: _sendCmdMs));
-      }
+        while (commnads.isNotEmpty) {
+          await _sendCmd(commnads.first);
+          commnads.removeAt(0);
+          await Future.delayed(Duration(milliseconds: _sendCmdMs));
+        }
+
+        while (cleanCommands.isNotEmpty) {
+          await _sendCmd(cleanCommands.first);
+          cleanCommands.removeAt(0);
+          await Future.delayed(Duration(milliseconds: _sendCmdMs));
+        }
+      });
     } catch (e) {
       debugPrint("Task Error :$e");
     }
@@ -224,21 +284,5 @@ class B7ProTaskModel extends B7ProScanModel {
     );
 
     return completer.future;
-  }
-
-  double parsingTempData(List<int> tempData) {
-    if (tempData.length == 13) {
-      var convertUnit8 = Uint8List.fromList(tempData);
-      final ByteData byteData = ByteData.sublistView(convertUnit8);
-
-      try {
-        return byteData.getInt16(11) / 100.0;
-      } catch (e) {
-        debugPrint("parsingTemData Error : $e");
-        return 0.0;
-      }
-    }
-
-    return 0.0;
   }
 }

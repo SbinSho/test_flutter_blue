@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_test/b7pro_data_view.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
+import 'charts/real_time_chart.dart';
 import 'models/B7Pro.dart';
 
 void main() {
@@ -15,6 +17,7 @@ class ReactiveDemo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const MaterialApp(
+      debugShowCheckedModeBanner: false,
       home: DemoPage(),
     );
   }
@@ -50,7 +53,14 @@ class _DemoPageState extends State<DemoPage> {
                   widgets.add(
                     InkWell(
                       onTap: () {
-                        _showDialog(element.value);
+                        final commModel = B7ProCommModel(element.value);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                B7ProDataView(commModel: commModel),
+                          ),
+                        );
                       },
                       child: ListTile(
                         title: Text(element.value.name),
@@ -90,80 +100,4 @@ class _DemoPageState extends State<DemoPage> {
           }
         },
       );
-  Future<void> _showDialog(DiscoveredDevice device) {
-    final taskModel = B7ProTaskModel(device);
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false, // user must tap button!
-      builder: (BuildContext context) {
-        return WillPopScope(
-          onWillPop: null,
-          child: AlertDialog(
-            title: Text(taskModel.device!.name),
-            content: SingleChildScrollView(
-              child: StreamBuilder<DeviceConnectionState>(
-                initialData: DeviceConnectionState.connecting,
-                stream: taskModel.connectState,
-                builder: (context, snapshot) {
-                  switch (snapshot.data!) {
-                    case DeviceConnectionState.connecting:
-                      return _buildIng(
-                        snapshot.data?.toString().split(".").last.toString() ??
-                            "",
-                      );
-
-                    case DeviceConnectionState.connected:
-                      return StreamBuilder<List<List<int>>>(
-                        stream: taskModel.dataStream,
-                        initialData: List<List<int>>.filled(3, [0]),
-                        builder: (context, snapshot) {
-                          return Column(
-                            children: [
-                              Text('심박수 => ${snapshot.data![0].last}'),
-                              Text(
-                                  '체온 => ${taskModel.parsingTempData(snapshot.data![1])}'),
-                              Text('걸음수 => ${snapshot.data![2].last}'),
-                            ],
-                          );
-                        },
-                      );
-                    case DeviceConnectionState.disconnecting:
-                      return _buildIng(
-                        snapshot.data?.toString().split(".").last.toString() ??
-                            "",
-                      );
-                    case DeviceConnectionState.disconnected:
-                      return ElevatedButton(
-                        onPressed: taskModel.connect,
-                        child: const Text("재연결"),
-                      );
-                  }
-                },
-              ),
-            ),
-            actions: <Widget>[
-              TextButton(
-                child: const Text('종료'),
-                onPressed: () {
-                  taskModel
-                      .disConnect()
-                      .then((value) => Navigator.of(context).pop());
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildIng(String state) {
-    return Column(
-      children: [
-        const CircularProgressIndicator(),
-        const SizedBox(height: 8.0),
-        Text(state),
-      ],
-    );
-  }
 }
