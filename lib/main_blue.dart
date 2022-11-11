@@ -103,7 +103,6 @@ class _DemoPageState extends State<DemoPage> {
                       stream: element.state,
                       initialData: BluetoothDeviceState.disconnected,
                       builder: (context, snapshot) {
-                        print("${element.name} : ${snapshot.data}");
                         switch (snapshot.data!) {
                           case BluetoothDeviceState.disconnected:
                             return ElevatedButton(
