@@ -43,19 +43,19 @@ class _RealTimeChartState extends State<RealTimeChart> {
     switch (widget.chartType) {
       case ChartType.temp:
         lineColor = Colors.blueAccent;
-        minY = 35.5;
-        maxY = 37.5;
+        minY = 32.0;
+        maxY = 40.0;
 
         break;
       case ChartType.heart:
         lineColor = Colors.redAccent;
-        minY = 40.0;
-        maxY = 140.0;
+        minY = 30.0;
+        maxY = 150.0;
         break;
       case ChartType.step:
         lineColor = Colors.green;
         minY = 0;
-        maxY = 20000;
+        maxY = 10000;
         break;
     }
   }
@@ -66,7 +66,7 @@ class _RealTimeChartState extends State<RealTimeChart> {
       stream: widget.dataStream,
       builder: (context, snapshot) {
         if (snapshot.data != null && snapshot.data! > 0) {
-          xCount = xCount + 0.05;
+          xCount = xCount + 1.0;
           points.add(FlSpot(xCount.toDouble(), snapshot.data!));
         }
 
@@ -114,9 +114,7 @@ class _RealTimeChartState extends State<RealTimeChart> {
         show: true,
       ),
       lineBarsData: _buildLine(),
-      titlesData: FlTitlesData(
-        show: false,
-      ),
+      titlesData: _buildTitle(),
     );
   }
 
@@ -146,6 +144,39 @@ class _RealTimeChartState extends State<RealTimeChart> {
     return results;
   }
 
+  FlTitlesData _buildTitle() {
+    return FlTitlesData(
+      show: true,
+      topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      rightTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 36,
+          interval: 1,
+          getTitlesWidget: buildRightTitle,
+        ),
+      ),
+    );
+  }
+
+  Widget buildRightTitle(double value, TitleMeta meta) {
+    final titlesMap = <ChartType, double>{
+      ChartType.temp: 36.0,
+      ChartType.heart: 100.0,
+      ChartType.step: maxY / 2.0,
+    };
+
+    if (minY == value || maxY == value) {
+      return Text(value.toString());
+    } else if (titlesMap[widget.chartType] == value) {
+      return Text(value.toString());
+    }
+
+    return Container();
+  }
+
   Map<String, double> _minMaxFind(double max, double min, List<double> data) {
     for (var element in data) {
       max = math.max(max, element);
@@ -159,7 +190,7 @@ class _RealTimeChartState extends State<RealTimeChart> {
     if (widget.chartType == ChartType.step) {
       final resultY = _minMaxFind(0, 0, [for (var e in points) e.y]);
       minY = resultY["min"]!;
-      maxY = resultY["max"]! + 10.0;
+      maxY = resultY["max"]! + 100.0;
     }
   }
 }
