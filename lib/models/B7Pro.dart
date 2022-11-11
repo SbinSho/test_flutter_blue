@@ -4,15 +4,16 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
-import 'package:synchronized/synchronized.dart';
 
 import '../app_constant.dart';
 
 class B7ProScanModel {
-  static final B7ProScanModel _instance = B7ProScanModel();
+  static final B7ProScanModel _instance = B7ProScanModel._();
   static B7ProScanModel get instance => _instance;
 
-  final flutterReactiveBle = FlutterReactiveBle();
+  B7ProScanModel._();
+
+  final _reactiveBle = FlutterReactiveBle();
 
   // key : device.mac, value : device object
   Map<String, DiscoveredDevice> deviceInfo = {};
@@ -29,7 +30,7 @@ class B7ProScanModel {
   void scanStart([int scanningTime = 10]) {
     deviceInfo.clear();
     _bleScaningStream.add(true);
-    _deviceScanSubscription = flutterReactiveBle.scanForDevices(
+    _deviceScanSubscription = _reactiveBle.scanForDevices(
       withServices: [
         B7ProAdvertisedServiceUuid.service1,
         B7ProAdvertisedServiceUuid.service2,
@@ -85,22 +86,18 @@ class B7ProDataModel {
       var convertUnit8 = Uint8List.fromList(tempData);
       final ByteData byteData = ByteData.sublistView(convertUnit8);
 
-      try {
-        return byteData.getInt16(11) / 100.0;
-      } catch (e) {
-        debugPrint("parsingTemData Error : $e");
-        return 0.0;
-      }
+      return byteData.getInt16(11) / 100.0;
     }
 
     return 0.0;
   }
 }
 
-class B7ProCommModel extends B7ProScanModel {
+class B7ProCommModel {
   late DiscoveredDevice device;
-  late B7ProDataModel dataModel;
+  late B7ProDataModel _dataModel;
 
+  final _reactiveBle = FlutterReactiveBle();
   final _bodyTemp = 0x24;
   final _heartRate = 0xE5;
   final _stepCount = 0XB1;
@@ -108,18 +105,16 @@ class B7ProCommModel extends B7ProScanModel {
   final _hrCmdStart = 0x11;
   final _hrCmdStop = 0x00;
   // command send 대기 시간
-  final _sendCmdMs = 500;
+  final _sendCmdMs = 1000;
 
-  // data send task
-  Future<void>? _task;
   // final _bandStreamDatas = List<List<int>>.filled(3, [0]);
 
   // band data stream
   StreamSubscription<List<int>>? _dataSubscription;
 
-  Stream<double> get heartStream => dataModel.heartStream;
-  Stream<double> get tempStream => dataModel.tempStream;
-  Stream<double> get stepStream => dataModel.stepStream;
+  Stream<double> get heartStream => _dataModel.heartStream;
+  Stream<double> get tempStream => _dataModel.tempStream;
+  Stream<double> get stepStream => _dataModel.stepStream;
 
   // final _dataStream = StreamController<List<List<int>>>.broadcast();
   // Stream<List<List<int>>> get dataStream => _dataStream.stream;
@@ -128,25 +123,31 @@ class B7ProCommModel extends B7ProScanModel {
   final _connectionStream = StreamController<DeviceConnectionState>.broadcast();
   StreamSubscription<ConnectionStateUpdate>? _connectSubscription;
   Stream<DeviceConnectionState> get connectState => _connectionStream.stream;
+  bool isConnected = false;
 
-  // connection timer
+  // device connection timer
   Timer? _connectionTimer;
   final _connectionTimeout = const Duration(seconds: 10);
 
+  // device data request timer
+  Timer? _taskTimer;
+  int _taskInterval = 10;
+  ValueNotifier<Future<void>?> taskRunning = ValueNotifier<Future<void>?>(null);
+
   B7ProCommModel(DiscoveredDevice inputDevice) {
     device = inputDevice;
-    dataModel = B7ProDataModel(device.id);
+    _dataModel = B7ProDataModel(device.id);
     // connect();
   }
 
-  StreamSubscription<List<int>> _getDataSubscription() => flutterReactiveBle
-          .subscribeToCharacteristic(getNotifyCharacteristic)
-          .listen(
+  StreamSubscription<List<int>> get _getDataSubscription =>
+      _reactiveBle.subscribeToCharacteristic(_getNotifyCharacteristic).listen(
         (data) {
           debugPrint("data length : ${data.length}");
           debugPrint("data : $data");
-
-          dataModel.updateStream(data);
+          if (taskRunning.value != null) {
+            _dataModel.updateStream(data);
+          }
         },
         onDone: () {
           debugPrint("Device SubscribeToCharacteristic onDone");
@@ -156,14 +157,14 @@ class B7ProCommModel extends B7ProScanModel {
         },
       );
 
-  QualifiedCharacteristic get getComandCharacteristic =>
+  QualifiedCharacteristic get _getComandCharacteristic =>
       QualifiedCharacteristic(
         characteristicId: B7ProCommServiceCharacteristicUuid.command,
         serviceId: B7ProServiceUuid.comm,
         deviceId: device.id,
       );
 
-  QualifiedCharacteristic get getNotifyCharacteristic =>
+  QualifiedCharacteristic get _getNotifyCharacteristic =>
       QualifiedCharacteristic(
         characteristicId: B7ProCommServiceCharacteristicUuid.rxNotify,
         serviceId: B7ProServiceUuid.comm,
@@ -177,7 +178,7 @@ class B7ProCommModel extends B7ProScanModel {
       disConnect();
     });
 
-    _connectSubscription = flutterReactiveBle.connectToDevice(
+    _connectSubscription = _reactiveBle.connectToDevice(
       id: device.id,
       connectionTimeout: _connectionTimeout,
       servicesWithCharacteristicsToDiscover: {
@@ -193,77 +194,98 @@ class B7ProCommModel extends B7ProScanModel {
           _connectionTimer?.cancel();
           _connectionTimer = null;
           // band response data subscription
-          _dataSubscription = _getDataSubscription();
-          // band request data commnad
-          _taskTimer = Timer.periodic(
-            const Duration(seconds: 10),
-            (timer) {
-              _task = startTask();
-            },
-          );
+          _dataSubscription = _getDataSubscription;
+
+          isConnected = true;
         }
 
         _connectionStream.add(state.connectionState);
       },
       onDone: () {
+        debugPrint("Device Connect onDone");
         _connectionTimer?.cancel();
         _connectionTimer = null;
         disConnect();
-        debugPrint("Device Connect onDone");
       },
       onError: (error) {
+        debugPrint("Device connectToDevice error: $error");
         _connectionTimer?.cancel();
         _connectionTimer = null;
         disConnect();
-        debugPrint("Device connectToDevice error: $error");
       },
     );
   }
 
   Future<void> disConnect() async {
-    debugPrint("call disConnect()");
-
-    _taskTimer?.cancel();
-    if (_task != null) {
-      await _task;
-      _task = null;
-    }
-
+    debugPrint("B7Pro DisConnect!");
+    isConnected = false;
+    await stopTask();
     await _dataSubscription?.cancel();
     await _connectSubscription?.cancel();
     _connectSubscription = null;
     _dataSubscription = null;
   }
 
-  Timer? _taskTimer;
+  void taskIntervalChange(int interval) async {
+    _taskInterval = interval;
+    await stopTask();
+    await startTask();
+  }
 
   Future<void> startTask() async {
-    try {
-      final lock = Lock();
+    await stopTask();
+    debugPrint("B7Pro Start Task!");
+    if (isConnected) {
+      taskRunning.value = _runTask();
+      _taskTimer = Timer.periodic(
+        Duration(seconds: _taskInterval),
+        (timer) {
+          taskRunning.value = _runTask();
+        },
+      );
+    }
+  }
 
-      await lock.synchronized(() async {
-        var commnads = [
-          [_bodyTemp, _btCmdStart],
-          [_heartRate, _hrCmdStart],
-          [_stepCount],
-        ];
+  Future<void> stopTask() async {
+    debugPrint("B7Pro Stop Task!");
+    final completer = Completer<void>();
 
-        var cleanCommands = [
-          [_heartRate, _hrCmdStop]
-        ];
-
-        while (commnads.isNotEmpty) {
-          await _sendCmd(commnads.first);
-          commnads.removeAt(0);
-          await Future.delayed(Duration(milliseconds: _sendCmdMs));
-        }
-
-        while (cleanCommands.isNotEmpty) {
-          await _sendCmd(cleanCommands.first);
-          cleanCommands.removeAt(0);
-          await Future.delayed(Duration(milliseconds: _sendCmdMs));
-        }
+    _taskTimer?.cancel();
+    if (taskRunning.value != null) {
+      taskRunning.value!.then((value) {
+        taskRunning.value = null;
+        completer.complete();
       });
+    } else {
+      completer.complete();
+    }
+
+    return completer.future;
+  }
+
+  Future<void> _runTask() async {
+    try {
+      var commnads = [
+        [_bodyTemp, _btCmdStart],
+        [_heartRate, _hrCmdStart],
+        [_stepCount],
+      ];
+
+      var cleanCommands = [
+        [_heartRate, _hrCmdStop]
+      ];
+
+      while (commnads.isNotEmpty) {
+        await _sendCmd(commnads.first);
+        commnads.removeAt(0);
+        await Future.delayed(Duration(milliseconds: _sendCmdMs));
+      }
+
+      while (cleanCommands.isNotEmpty) {
+        await _sendCmd(cleanCommands.first);
+        cleanCommands.removeAt(0);
+        await Future.delayed(Duration(milliseconds: _sendCmdMs));
+      }
     } catch (e) {
       debugPrint("Task Error :$e");
     }
@@ -272,8 +294,8 @@ class B7ProCommModel extends B7ProScanModel {
   Future<void> _sendCmd(List<int> value) async {
     final completer = Completer<void>();
 
-    flutterReactiveBle
-        .writeCharacteristicWithResponse(getComandCharacteristic, value: value)
+    _reactiveBle
+        .writeCharacteristicWithResponse(_getComandCharacteristic, value: value)
         .then(
           (value) => completer.complete(),
         )

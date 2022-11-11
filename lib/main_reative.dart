@@ -1,10 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_test/b7pro_data_view.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-import 'charts/real_time_chart.dart';
 import 'models/B7Pro.dart';
 
 void main() {
@@ -94,10 +92,42 @@ class _DemoPageState extends State<DemoPage> {
             );
           } else {
             return FloatingActionButton(
-              onPressed: scanner.scanStart,
+              onPressed: () async {
+                if (await checkPermission()) {
+                  scanner.scanStart();
+                }
+              },
               child: const Icon(Icons.search),
             );
           }
         },
       );
+
+  Future<bool> checkPermission() async {
+    var locationStatus = Permission.location;
+    var bleScanStatus = Permission.bluetoothScan;
+    var bleConnectStatus = Permission.bluetoothConnect;
+
+    final status = <Permission>[
+      locationStatus,
+      bleScanStatus,
+      bleConnectStatus,
+    ];
+
+    for (var element in status) {
+      if (await element.status.isDenied) {
+        await element.request();
+      } else if (await element.status.isPermanentlyDenied) {
+        await openAppSettings();
+      }
+    }
+
+    for (var element in status) {
+      if (!(await element.status.isGranted)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 }

@@ -1,9 +1,8 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_test/models/B7Pro.dart';
 
 enum ChartType {
   temp,
@@ -34,6 +33,12 @@ class _RealTimeChartState extends State<RealTimeChart> {
   final points = <FlSpot>[];
   double xCount = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    init();
+  }
+
   void init() {
     switch (widget.chartType) {
       case ChartType.temp:
@@ -50,15 +55,9 @@ class _RealTimeChartState extends State<RealTimeChart> {
       case ChartType.step:
         lineColor = Colors.green;
         minY = 0;
-        maxY = 200;
+        maxY = 20000;
         break;
     }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    init();
   }
 
   @override
@@ -66,75 +65,101 @@ class _RealTimeChartState extends State<RealTimeChart> {
     return StreamBuilder<double>(
       stream: widget.dataStream,
       builder: (context, snapshot) {
-        if (snapshot.data == null) {
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.blueAccent),
-          );
-        } else {
-          if (snapshot.data! > 0) {
-            xCount = xCount + 0.05;
-            if (widget.chartType == ChartType.heart ||
-                widget.chartType == ChartType.step) {}
-            points.add(FlSpot(xCount.toDouble(), snapshot.data!));
-          }
+        if (snapshot.data != null && snapshot.data! > 0) {
+          xCount = xCount + 0.05;
+          points.add(FlSpot(xCount.toDouble(), snapshot.data!));
+        }
 
-          return Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    widget.chartType.toString().split(".").last.toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 30,
-                    ),
-                  ),
-                  Text(
-                    "DATA : ${snapshot.data}",
-                    style: TextStyle(
-                      fontSize: 21,
-                      color: lineColor,
-                    ),
-                  ),
-                ],
-              ),
-              Expanded(
-                child: LineChart(
-                  LineChartData(
-                    minY: minY,
-                    maxY: maxY,
-                    minX: 0.0,
-                    maxX: points.isEmpty ? 0.0 : points.last.x,
-                    lineTouchData: LineTouchData(enabled: true),
-                    gridData: FlGridData(
-                      show: false,
-                      drawVerticalLine: false,
-                    ),
-                    lineBarsData: [
-                      tempLine(points),
-                    ],
-                    titlesData: FlTitlesData(
-                      show: false,
-                    ),
+        return Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  widget.chartType.toString().split(".").last.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 30,
                   ),
                 ),
+                Text(
+                  "DATA : ${snapshot.data}",
+                  style: TextStyle(
+                    fontSize: 21,
+                    color: lineColor,
+                  ),
+                ),
+              ],
+            ),
+            Expanded(
+              child: LineChart(
+                _chartData(),
               ),
-            ],
-          );
-        }
+            ),
+          ],
+        );
       },
     );
   }
 
-  LineChartBarData tempLine(List<FlSpot> points) {
-    return LineChartBarData(
-      spots: points,
-      dotData: FlDotData(
+  LineChartData _chartData() {
+    _convertY();
+
+    return LineChartData(
+      minY: minY,
+      maxY: maxY,
+      minX: 0.0,
+      maxX: points.isEmpty ? 0.0 : points.last.x + 1.0,
+      lineTouchData: LineTouchData(enabled: true),
+      gridData: FlGridData(
+        show: true,
+      ),
+      lineBarsData: _buildLine(),
+      titlesData: FlTitlesData(
         show: false,
       ),
-      color: lineColor,
-      barWidth: 2,
-      isCurved: false,
     );
+  }
+
+  List<LineChartBarData> _buildLine() {
+    final results = <LineChartBarData>[];
+
+    results.add(
+      LineChartBarData(
+        spots: points,
+        dotData: FlDotData(
+          show: false,
+        ),
+        color: lineColor,
+        barWidth: 2,
+        isCurved: true,
+        belowBarData: BarAreaData(
+          show: true,
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [lineColor.withOpacity(0.1), lineColor.withOpacity(0.1)],
+          ),
+        ),
+      ),
+    );
+
+    return results;
+  }
+
+  Map<String, double> _minMaxFind(double max, double min, List<double> data) {
+    for (var element in data) {
+      max = math.max(max, element);
+      min = math.min(min, element);
+    }
+
+    return {'max': max, 'min': min};
+  }
+
+  void _convertY() {
+    if (widget.chartType == ChartType.step) {
+      final resultY = _minMaxFind(0, 0, [for (var e in points) e.y]);
+      minY = resultY["min"]!;
+      maxY = resultY["max"]! + 10.0;
+    }
   }
 }

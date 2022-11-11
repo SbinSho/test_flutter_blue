@@ -25,23 +25,39 @@ class _B7ProDataViewState extends State<B7ProDataView> {
       appBar: AppBar(
         title: Text(widget.commModel.device.name),
         actions: [
-          StreamBuilder<DeviceConnectionState>(
-            stream: widget.commModel.connectState,
-            builder: (context, snapshot) {
-              Function()? onPressed;
-
-              if (snapshot.data != null &&
-                  snapshot.data! == DeviceConnectionState.connected) {
-                onPressed = widget.commModel.startTask;
+          ValueListenableBuilder<Future<void>?>(
+            valueListenable: widget.commModel.taskRunning,
+            builder: (context, value, child) {
+              if (value != null) {
+                return GestureDetector(
+                  onTap: widget.commModel.stopTask,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Container(
+                          margin: const EdgeInsetsDirectional.all(5.0),
+                          child: const CircularProgressIndicator(
+                              color: Colors.red),
+                        ),
+                      ),
+                      const Text("Running"),
+                    ],
+                  ),
+                );
+              } else {
+                return Container(
+                  margin: const EdgeInsetsDirectional.all(5.0),
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                    ),
+                    onPressed: widget.commModel.startTask,
+                    child: const Text("Run"),
+                  ),
+                );
               }
-
-              return ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                ),
-                onPressed: onPressed,
-                child: const Text("Request"),
-              );
             },
           ),
         ],
