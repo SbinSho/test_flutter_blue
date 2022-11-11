@@ -234,8 +234,9 @@ class B7ProCommModel {
 
   Future<void> startTask() async {
     await stopTask();
-    debugPrint("B7Pro Start Task!");
+
     if (isConnected) {
+      debugPrint("B7Pro Start Task!");
       taskRunning.value = _runTask();
       _taskTimer = Timer.periodic(
         Duration(seconds: _taskInterval),

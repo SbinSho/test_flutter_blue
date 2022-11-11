@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
@@ -81,15 +82,24 @@ class _RealTimeChartState extends State<RealTimeChart> {
                     fontSize: 30,
                   ),
                 ),
-                Text(
-                  "DATA : ${snapshot.data}",
-                  style: TextStyle(
-                    fontSize: 21,
-                    color: lineColor,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      "DATA : ${snapshot.data}",
+                      style: TextStyle(
+                        fontSize: 21,
+                        color: lineColor,
+                      ),
+                    ),
+                    Text(
+                      DateFormat("MM-dd HH:mm:ss").format(DateTime.now()),
+                    ),
+                  ],
                 ),
               ],
             ),
+            const SizedBox(height: 10.0),
             Expanded(
               child: LineChart(
                 _chartData(),
@@ -111,7 +121,7 @@ class _RealTimeChartState extends State<RealTimeChart> {
       maxX: points.isEmpty ? 0.0 : points.last.x + 1.0,
       lineTouchData: LineTouchData(enabled: true),
       gridData: FlGridData(
-        show: true,
+        drawHorizontalLine: true,
       ),
       lineBarsData: _buildLine(),
       titlesData: _buildTitle(),
@@ -168,10 +178,15 @@ class _RealTimeChartState extends State<RealTimeChart> {
       ChartType.step: maxY / 2.0,
     };
 
-    if (minY == value || maxY == value) {
-      return Text(value.toString());
-    } else if (titlesMap[widget.chartType] == value) {
-      return Text(value.toString());
+    if (minY == value ||
+        maxY == value ||
+        titlesMap[widget.chartType] == value) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 1.0),
+        child: Text(
+          value.toString(),
+        ),
+      );
     }
 
     return Container();
