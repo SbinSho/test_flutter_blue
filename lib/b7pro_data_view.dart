@@ -13,6 +13,8 @@ class B7ProDataView extends StatefulWidget {
 }
 
 class _B7ProDataViewState extends State<B7ProDataView> {
+  bool finishing = false;
+
   @override
   void dispose() {
     super.dispose();
@@ -30,10 +32,14 @@ class _B7ProDataViewState extends State<B7ProDataView> {
             builder: (context, value, child) {
               if (value != null) {
                 return GestureDetector(
-                  onTap: widget.commModel.stopTask,
+                  onTap: () {
+                    if (finishing) return;
+                    widget.commModel.stopTask();
+                    setState(() {
+                      finishing = true;
+                    });
+                  },
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(
                         child: Container(
@@ -42,7 +48,8 @@ class _B7ProDataViewState extends State<B7ProDataView> {
                               color: Colors.red),
                         ),
                       ),
-                      const Text("Running"),
+                      const SizedBox(height: 3.0),
+                      Text(finishing ? "Finishing" : "Running"),
                     ],
                   ),
                 );
@@ -53,13 +60,19 @@ class _B7ProDataViewState extends State<B7ProDataView> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.black,
                     ),
-                    onPressed: widget.commModel.startTask,
+                    onPressed: () {
+                      widget.commModel.startTask();
+                      setState(() {
+                        finishing = false;
+                      });
+                    },
                     child: const Text("Run"),
                   ),
                 );
               }
             },
           ),
+          const SizedBox(width: 15),
         ],
       ),
       body: StreamBuilder<DeviceConnectionState>(
