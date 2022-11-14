@@ -9,8 +9,37 @@ void main() {
   runApp(const ReactiveDemo());
 }
 
-class ReactiveDemo extends StatelessWidget {
+class ReactiveDemo extends StatefulWidget {
   const ReactiveDemo({super.key});
+
+  @override
+  State<ReactiveDemo> createState() => _ReactiveDemoState();
+}
+
+class _ReactiveDemoState extends State<ReactiveDemo>
+    with WidgetsBindingObserver {
+  late AppLifecycleState _appLifecycleState;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    setState(() {
+      _appLifecycleState = state;
+    });
+
+    print('AppLifecycleState state:  $state');
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+  }
 
   @override
   Widget build(BuildContext context) {
